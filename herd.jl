@@ -2,10 +2,9 @@ include("./dbscan.jl")
 include("./herd_functions.jl")
 
 iniₚₐᵣₜₛ = 100
-total_steps = 10
 
 parameters_dict = Dict(
-    "total_steps" => 100,          #Number of steps in the simulation
+    "total_steps" => 10000,          #Number of steps in the simulation
     "maxₚₐᵣₜₛ" => 100,             #Maximum number of particles in the simulation
     "avg_repr" => false,            #Crossover reproduction (true) vs Select best "genes"
     "roulette" => false,            #Kill boids with weighted probabilities
@@ -32,9 +31,6 @@ parameters_dict = Dict(
     "τ" => 0,                      #Boid Lifetime
 )
 
-# anim = @animate
-# for τ in 1:total_steps
-# for τ in 1:total_steps
 update_boids!(parameters_dict, 1e-2)
 #     Plots.scatter([b.pos[1] for b in updated_Boids], [b.pos[2] for b in updated_Boids], aspect_ratio=:equal, legend=false)
 

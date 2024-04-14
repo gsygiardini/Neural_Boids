@@ -152,7 +152,7 @@ function update_boids!(parameters_dict::Dict, Δt::Float64)
     end
 
     println("Starting Animation")
-    anim_size = 200
+    anim_size = 1000
     anim = @animate for τ in 1:anim_size
         @cuda threads=length(Boids) update_kernel!(d_i, d_r, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_speed, W₁, W₂, b₁, b₂, cm, x, out, avg_coord)
 
@@ -165,7 +165,7 @@ function update_boids!(parameters_dict::Dict, Δt::Float64)
         xlims!(0, 1)
         ylims!(0, 1)
 
-        if τ % 1 == 0
+        if τ % 100 == 0
             println("animation step: $τ of $anim_size")
         end
     end
@@ -182,7 +182,7 @@ function update_kernel!(d_i, d_r, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
     β = 1.0
     μ = 1e-5
     avg_θ = 0.0
-    d_τ[idx] += 1
+    @inbounds d_τ[idx] += 1
 
     #Get direction from neural network
     ############################################################################################################################
@@ -222,26 +222,28 @@ function update_kernel!(d_i, d_r, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
         end
         out[jdx] = tmp
     end
-    @inbounds out .= out .+ b₂[idx]
+    @inbounds out[1] = out[1] + b₂[idx]
 
     ############################################################################################################################
 
     #Recalculate particles' coordinates x,y,θ
     ############################################################################################################################
 #     if innertia
-    @inbounds d_θ[idx] = mod(d_θ[idx] + π*out[size(W₂,3)] * Δt + π, 2.0 * π) - π
+    #BUG ### TEST TO SEE IF USING THE FIRST INDEX IS CORRECT
+    @inbounds d_θ[idx] = mod(d_θ[idx] + π*out[1] * Δt + π, 2.0 * π) - π
+#     @inbounds d_θ[idx] = mod(d_θ[idx] + π * out * Δt + π, 2.0 * π) - π
 #     else
 #         d_coords[3,idx] = d_θ[idx]
 #     end
 
-    d_pos[1,idx] = d_pos[1,idx] + d_speed[idx] * Δt * cos(d_θ[idx])
-    d_pos[2,idx] = d_pos[2,idx] + d_speed[idx] * Δt * sin(d_θ[idx])
+    @inbounds d_pos[1,idx] = d_pos[1,idx] + d_speed[idx] * Δt * cos(d_θ[idx])
+    @inbounds d_pos[2,idx] = d_pos[2,idx] + d_speed[idx] * Δt * sin(d_θ[idx])
     ############################################################################################################################
 
     #Periodic boundary conditions
     ############################################################################################################################
-    d_pos[1,idx] = mod(d_pos[1,idx] + box_size, box_size)
-    d_pos[2,idx] = mod(d_pos[2,idx] + box_size, box_size)
+    @inbounds d_pos[1,idx] = mod(d_pos[1,idx] + box_size, box_size)
+    @inbounds d_pos[2,idx] = mod(d_pos[2,idx] + box_size, box_size)
     ############################################################################################################################
 
     #Birth Dynamics
@@ -253,22 +255,21 @@ function update_kernel!(d_i, d_r, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
         end
         dist = sqrt(dist)
 
-        if dist < d_rr[idx] && d_sx[idx] != d_sx[jdx]
+        if @inbounds  dist < d_rr[idx] && d_sx[idx] != d_sx[jdx]
             #Death dynamics - Here I use a accumulated random selector for killing a particle
             ############################################################################################################################
             max_r = 0
-            for ldx in 1:length(d_i)
-                max_r = d_ϕ[ldx]
+            for ldx in 1:length(d_ϕ)
+                max_r += d_ϕ[ldx]
             end
             r = max_r * rand()
 
             kdx = 0
             sum = 0
-            while sum < r
+            while sum <= r && kdx <= length(d_ϕ)-2
                 kdx+=1
                 sum+=d_ϕ[kdx]
             end
-
             ############################################################################################################################
 
             #Assign new boid to the position the previous one was killed
@@ -276,7 +277,7 @@ function update_kernel!(d_i, d_r, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
             for ldx in 1:size(W₁,2)
                 for mdx in size(W₁,3)
                     if rand() < 0.5
-                        W₁[kdx,ldx,mdx] = W₁[idx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
+                        @inbounds W₁[kdx,ldx,mdx] = W₁[idx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
                     else
                         W₁[kdx,ldx,mdx] = W₁[jdx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
                     end
@@ -286,7 +287,7 @@ function update_kernel!(d_i, d_r, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
             for ldx in 1:size(W₂,2)
                 for mdx in size(W₂,3)
                     if rand() < 0.5
-                        W₂[kdx,ldx,mdx] = W₂[idx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
+                        @inbounds W₂[kdx,ldx,mdx] = W₂[idx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
                     else
                         W₂[kdx,ldx,mdx] = W₂[jdx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
                     end
@@ -295,7 +296,7 @@ function update_kernel!(d_i, d_r, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
 
             for ldx in 1:size(b₁,2)
                 if rand() < 0.5
-                    b₁[kdx,ldx] = b₁[idx,ldx] + 2.0 * μ * (rand() - 0.5)
+                    @inbounds b₁[kdx,ldx] = b₁[idx,ldx] + 2.0 * μ * (rand() - 0.5)
                 else
                     b₁[kdx,ldx] = b₁[jdx,ldx] + 2.0 * μ * (rand() - 0.5)
                 end
@@ -303,20 +304,55 @@ function update_kernel!(d_i, d_r, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
 
             for ldx in 1:size(b₂,2)
                 if rand() < 0.5
-                    b₂[kdx,ldx] = b₂[idx,ldx] + 2.0 * μ * (rand() - 0.5)
+                    @inbounds b₂[kdx,ldx] = b₂[idx,ldx] + 2.0 * μ * (rand() - 0.5)
                 else
                     b₂[kdx,ldx] = b₂[jdx,ldx] + 2.0 * μ * (rand() - 0.5)
                 end
             end
 
-            d_cn[idx] += 1
+            d_cn[kdx] = 0
+            @inbounds d_cn[idx] += 1
             d_cn[jdx] += 1
+
         end
     end
     ############################################################################################################################
     #Now we gotta calculate the fitness values
-    d_ϕ[idx] = d_cn[idx] / d_τ[idx]
+    @inbounds d_ϕ[idx] = d_cn[idx] / d_τ[idx]
     #I have to add the penalty for when a particle gets close to another
 
     return
 end
+
+# function order_parameter()
+#     v = [0,0]
+#     sum_speed = 0
+#     for boid in Boids
+#         v = v .+ boid.speed * [cos(boid.θ), sin(boid.θ)]
+#         sum_speed = sum_speed + boid.speed
+#     end
+#
+#     avg_speed = sum_speed/length(Boids)
+#
+#     ψ = norm(v)/(length(Boids)*avg_speed)
+#
+#     return ψ
+# end
+#
+# function collisions(Boids::Vector{Boid})
+#     #Number of particle collisions
+#     counts = 0
+#     distances = []
+#
+#     for i in 1:length(Boids)
+#         for j in i+1:length(Boids)
+#             distance = norm(Boids[i].pos - Boids[j].pos)
+#             push!(distances,distance)
+#             if distance < Boids[i].cr
+#                 counts+=1
+#             end
+#         end
+#     end
+#
+#     return counts, mean(distances)
+# end
