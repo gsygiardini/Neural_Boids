@@ -180,6 +180,7 @@ function update_kernel!(d_i, d_r, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
     box_size=1
     Δt = 1e-2
     β = 1.0
+    μ = 1e-5
     avg_θ = 0.0
     d_τ[idx] += 1
 
@@ -275,9 +276,9 @@ function update_kernel!(d_i, d_r, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
             for ldx in 1:size(W₁,2)
                 for mdx in size(W₁,3)
                     if rand() < 0.5
-                        W₁[kdx,ldx,mdx] = W₁[idx,ldx,mdx]
+                        W₁[kdx,ldx,mdx] = W₁[idx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
                     else
-                        W₁[kdx,ldx,mdx] = W₁[jdx,ldx,mdx]
+                        W₁[kdx,ldx,mdx] = W₁[jdx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
                     end
                 end
             end
@@ -285,26 +286,26 @@ function update_kernel!(d_i, d_r, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
             for ldx in 1:size(W₂,2)
                 for mdx in size(W₂,3)
                     if rand() < 0.5
-                        W₂[kdx,ldx,mdx] = W₂[idx,ldx,mdx]
+                        W₂[kdx,ldx,mdx] = W₂[idx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
                     else
-                        W₂[kdx,ldx,mdx] = W₂[jdx,ldx,mdx]
+                        W₂[kdx,ldx,mdx] = W₂[jdx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
                     end
                 end
             end
 
             for ldx in 1:size(b₁,2)
                 if rand() < 0.5
-                    b₁[kdx,ldx] = b₁[idx,ldx]
+                    b₁[kdx,ldx] = b₁[idx,ldx] + 2.0 * μ * (rand() - 0.5)
                 else
-                    b₁[kdx,ldx] = b₁[jdx,ldx]
+                    b₁[kdx,ldx] = b₁[jdx,ldx] + 2.0 * μ * (rand() - 0.5)
                 end
             end
 
             for ldx in 1:size(b₂,2)
                 if rand() < 0.5
-                    b₂[kdx,ldx] = b₂[idx,ldx]
+                    b₂[kdx,ldx] = b₂[idx,ldx] + 2.0 * μ * (rand() - 0.5)
                 else
-                    b₂[kdx,ldx] = b₂[jdx,ldx]
+                    b₂[kdx,ldx] = b₂[jdx,ldx] + 2.0 * μ * (rand() - 0.5)
                 end
             end
 
