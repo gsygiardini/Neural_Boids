@@ -143,27 +143,35 @@ function update_boids!(parameters_dict::Dict, Δt::Float64)
 
     avg_coord = zeros(Float32, 3) |> cu
 
-    #=anim = @animate =#for τ in 1:total_steps
+    for τ in 1:total_steps
         @cuda threads=length(Boids) update_kernel!(d_i, d_r, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_speed, W₁, W₂, b₁, b₂, cm, x, out, avg_coord)
 
-#         θ = d_θ |> cpu
-#         pos = d_pos |> cpu
-#
-#         Plots.scatter(pos[1,:], pos[2,:], aspect_ratio=:equal, legend=false)
-#         quiver!(pos[1,:], pos[2,:], quiver=(0.02*cos.(θ), 0.02*sin.(θ)), color=:blue)
-
-#         xlims!(0, 1)
-#         ylims!(0, 1)
-
-        if τ % 1 == 0
-            println("step: $τ")
+        if τ % 100 == 0
+            println("step: $τ of $total_steps")
         end
     end
 
-#     gif(anim, "./results/boid_animation.mp4", fps = 10)
+    println("Starting Animation")
+    anim_size = 200
+    anim = @animate for τ in 1:anim_size
+        @cuda threads=length(Boids) update_kernel!(d_i, d_r, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_speed, W₁, W₂, b₁, b₂, cm, x, out, avg_coord)
 
-#     # Transfer updated data back to CPU memory
-#     CUDA.copyto!(updated_Boids, d_updated_Boids)
+        θ = d_θ |> cpu
+        pos = d_pos |> cpu
+
+        Plots.scatter(pos[1,:], pos[2,:], aspect_ratio=:equal, legend=false)
+        quiver!(pos[1,:], pos[2,:], quiver=(0.02*cos.(θ), 0.02*sin.(θ)), color=:blue)
+
+        xlims!(0, 1)
+        ylims!(0, 1)
+
+        if τ % 1 == 0
+            println("animation step: $τ of $anim_size")
+        end
+    end
+
+    gif(anim, "./results/boid_animation.mp4", fps = 10)
+
 end
 
 function update_kernel!(d_i, d_r, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_speed, W₁, W₂, b₁, b₂, cm, x, out, avg_coord)
@@ -247,13 +255,19 @@ function update_kernel!(d_i, d_r, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
         if dist < d_rr[idx] && d_sx[idx] != d_sx[jdx]
             #Death dynamics - Here I use a accumulated random selector for killing a particle
             ############################################################################################################################
-            r = rand()
+            max_r = 0
+            for ldx in 1:length(d_i)
+                max_r = d_ϕ[ldx]
+            end
+            r = max_r * rand()
+
             kdx = 0
             sum = 0
             while sum < r
                 kdx+=1
                 sum+=d_ϕ[kdx]
             end
+
             ############################################################################################################################
 
             #Assign new boid to the position the previous one was killed
@@ -305,192 +319,3 @@ function update_kernel!(d_i, d_r, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
 
     return
 end
-
-# function fitness(parameters_dict::Dict, Boids::Vector{Boid}, τ::Int64)
-#     γ = parameters_dict["γ"]
-#     κ = parameters_dict["κ"]
-#     x₀ = parameters_dict["x₀"]
-#     potential = Inf
-#
-#     for boid₁ in Boids
-#         for boid₂ in Boids
-#             if (boid₁ != boid₂)
-#                 dist = norm(boid₁.pos - boid₂.pos)
-#                 cost = 1 / (1 + exp(-κ*(dist-x₀)))
-#                 potential = min(cost,potential)
-#             end
-#         end
-#
-#         if boid₁.τ > 0
-#             offspring_rate = γ * boid₁.cn / boid₁.τ
-#         else
-#             offspring_rate = 0.0
-#         end
-#
-#         boid₁.ϕ = offspring_rate * potential
-#     end
-# end
-#
-# function volume_exclusion!(boid₁::Boid, Boids::Vector{Boid}, Δt::Float64)
-#     #Particles cant occupy same space
-#
-#     for boid₂ in Boids
-#         dist = norm(boid₁.pos - boid₂.pos)
-# #         if dist <= (boid₁.cr + boid₂.cr)
-# #             collision+=1
-# #         end
-#
-#         if boid₁ !== boid₂ && dist <= (boid₁.cr + boid₂.cr) / 2.0
-#             move_dir = normalize!(boid₁.pos - boid₂.pos)
-#             move_amount = ((boid₁.cr + boid₂.cr) - dist) / 2.0
-#
-#             boid₁.pos += move_amount * move_dir
-#             boid₂.pos -= move_amount * move_dir
-#         end
-#     end
-# end
-#
-# function reset_positions!(boids::Vector{Boid})
-#     for boid in boids
-#         boid.θ = π * rand(-1.0:1e-5:1.0)
-#         boid.pos = [2*rand()-1.0, 2*rand()-1.0]
-#     end
-# end
-#
-# function order_parameter(Boids::Vector{Boid})
-#     v = [0,0]
-#     sum_speed = 0
-#     for boid in Boids
-#         v = v .+ boid.speed * [cos(boid.θ), sin(boid.θ)]
-#         sum_speed = sum_speed + boid.speed
-#     end
-#
-#     avg_speed = sum_speed/length(Boids)
-#
-#     ψ = norm(v)/(length(Boids)*avg_speed)
-#
-#     return ψ
-# end
-#
-# function save_models(Boids::Vector{Boid}, prefix="model", folder="./saved_models/")
-#     if !isdir(folder)
-#         mkdir(folder)
-#     end
-#
-#     for (i, boid) in enumerate(Boids)
-#         model_filename = "$folder$prefix$i.bson"
-#         model = boid.model
-#         BSON.@save model_filename model
-#     end
-# end
-#
-# # Function to load models
-# function load_models(Boids::Vector{Boid}, prefix="model", folder="./saved_models/")
-#     if !isdir(folder_path)
-#         println("No model was found")
-#         return 0
-#     end
-#
-#     for (i, boid) in enumerate(Boids)
-#         model_filename = "$folder$prefix$i.bson"
-#         boid.model = BSON.load(model_filename)[:model]
-#     end
-# end
-#
-# function db_scan(parameters_dict::Dict, Boids::Vector{Boid})
-#     ε = parameters_dict["ε"]
-#     min_pts = parameters_dict["min_pts"]
-#
-#     models = []
-#     distances = []
-#
-#     for boid in Boids
-#         model = []
-#         collected = collect(Flux.params(boid.model))
-#         for item in collected
-#             push!(model, cat(item..., dims=1))
-#         end
-#         push!(models, cat(model..., dims=1))
-#     end
-#
-#     #Write down the dsitances if i!=j
-#     for i in 1:length(models)
-#         for j in 1:length(models)
-#             if i!=j
-#                 push!(distances,euclidean_distance(models[i],models[j]))
-#             end
-#         end
-#     end
-#
-#     hist = Plots.histogram(distances, bins=20)
-#
-#     clusters = dbscan(models,ε,min_pts)
-#
-#     return clusters, hist
-# end
-#
-# # Function to store models in a contiguous block of memory
-# function store_models(models::Vector{Chain})
-#     flat_params = Vector{Float32}()
-#     for model in models
-#         append!(flat_params, flatten_params(model))
-#     end
-#     return flat_params
-# end
-#
-# # Function to get pointers to each model in the contiguous memory block
-# function get_model_pointers(flat_params::Vector{Float32}, models::Vector{Chain})
-#     model_pointers = Vector{Ptr{Float32}}()
-#     base_ptr = pointer(flat_params)
-#     for model in models
-#         push!(model_pointers, base_ptr)
-#         base_ptr += length(flatten_params(model))
-#     end
-#     return model_pointers
-# end
-#=
-index_colors = Dict(
-    -1 => :black,
-    0 => :red,
-    1 => :green,
-    2 => :blue,
-    3 => :yellow,
-    4 => :purple,
-    5 => :orange,
-    6 => :cyan,
-    7 => :magenta,
-    8 => :brown,
-    9 => :pink,
-    10 => :teal,
-    11 => :olive,
-    12 => :navy,
-    13 => :maroon,
-    14 => :lime,
-    15 => :skyblue,
-    16 => :gold,
-    17 => :indigo,
-    18 => :tan,
-    19 => :violet,
-    20 => :salmon,
-    21 => :darkred,
-    22 => :darkgreen,
-    23 => :darkblue,
-    24 => :darkcyan,
-    25 => :darkmagenta,
-    26 => :saddlebrown,
-    27 => :darkorange,
-    28 => :darkolivegreen,
-    29 => :darkslategray,
-    30 => :darkorchid,
-    31 => :darkgoldenrod,
-    32 => :darkseagreen,
-    33 => :darkviolet,
-    34 => :darkturquoise,
-    35 => :sienna,
-    36 => :lightcoral,
-    37 => :mediumvioletred,
-    38 => :firebrick,
-    39 => :mediumseagreen,
-    40 => :royalblue,
-    # Add more colors as needed
-)=#
