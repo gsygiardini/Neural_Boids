@@ -81,9 +81,9 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
 
     #BUG ### TEST TO SEE IF USING THE FIRST INDEX IS CORRECT
 #     if innertia
-#         @inbounds d_θ[idx] = mod(d_θ[idx] + π*out[1] * Δt + π, 2.0 * π) - π
+        @inbounds d_θ[idx] = mod(d_θ[idx] + π*out[idx,1] * Δt + π, 2.0 * π) - π
 #     else
-        @inbounds d_θ[idx] = π*out[idx,1]
+#         @inbounds d_θ[idx] = π*out[idx,1]
 #     end
 
     @inbounds d_pos[1,idx] = d_pos[1,idx] + d_speed[idx] * Δt * cos(d_θ[idx])
@@ -117,31 +117,32 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
 #             # I need to exclude the boids with lifetime 0 from this
 
             #Roulette kill
-#             max_r = 0
-#             for ldx in 1:nₚₐᵣₜₛ
-#                 max_r += d_ϕ[ldx]
-#             end
-#
-#             kdx = 0
-#             while true
-#                 kdx = 0
-#                 sum = 0
-#                 r = max_r * rand()
-#                 while sum < r && kdx < nₚₐᵣₜₛ
-#                     kdx+=1
-#                     sum += (max_r - d_ϕ[kdx])
-#                 end
-#                 if d_τ[kdx] > 0
-#                     break
-#                 end
-#             end
+            max_r = 0
+            for ldx in 1:nₚₐᵣₜₛ
+                max_r += d_ϕ[ldx]
+            end
+
+            kdx = 0
+            while true
+                kdx = 0
+                r = (nₚₐᵣₜₛ-1) * max_r * rand()
+                while r≥0 && kdx < nₚₐᵣₜₛ
+                    kdx+=1
+                    r -= (max_r - d_ϕ[kdx])
+                end
+                if kdx==0 kdx=1 end
+
+                if d_τ[kdx] > 1
+                    break
+                end
+            end
 
             #Kill Worst
             ############################################################################################################################
 #             kdx = 1
 #             min_ϕ = Inf
 #             for ldx in 1:nₚₐᵣₜₛ
-#                 if min_ϕ > d_ϕ[ldx] && d_τ[ldx] > 0
+#                 if min_ϕ > d_ϕ[ldx] && d_τ[ldx] > 1
 #                     kdx = ldx
 #                 end
 #             end
@@ -200,7 +201,7 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
 #                 b₂[kdx,:] .= b₂[jdx,:] .+ 2.0 * μ * (rand() - 0.5)
 #             end
 
-            d_τ[kdx] = 0
+            d_τ[kdx] = 1
             d_cn[kdx] = 0
             @inbounds d_cn[idx] += 1
             d_cn[jdx] += 1

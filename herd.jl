@@ -27,7 +27,7 @@ parameters_dict = Dict(
     "cn" => 0,                     #Boid Child Number
     "neighbors" => Int32[],        #Boid Initial neighbors
     "speed" => 1.0,                #Boid Velocity
-    "τ" => 0,                      #Boid Lifetime
+    "τ" => 1,                      #Boid Lifetime
     "Δt" => 1e-2                   #
 )
 
