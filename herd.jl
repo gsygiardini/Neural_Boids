@@ -1,11 +1,9 @@
 include("./dbscan.jl")
 include("./herd_functions.jl")
 
-iniₚₐᵣₜₛ = 100
-
 parameters_dict = Dict(
-    "total_steps" => 10000,          #Number of steps in the simulation
-    "anim_steps" => 500,          #Number of steps in the animation
+    "total_steps" => 1e5,          #Number of steps in the simulation
+    "anim_steps" => 5e2,          #Number of steps in the animation
     "nₚₐᵣₜₛ" => 100,               #Maximum number of particles in the simulation
     "avg_repr" => false,           #Crossover reproduction (true) vs Select best "genes"
     "roulette" => false,           #Kill boids with weighted probabilities
@@ -24,7 +22,7 @@ parameters_dict = Dict(
     "κ" => 50.0,                   #S curve to avoid boids touching coefficient 1/(1 - exp(-κ(x-x0)))
     "x₀" => 0.07,                  #S curve to avoid boids touching center value 1/(1 - exp(-κ(x-x0)))
     "r" => 0.1,                    #Boid Interaction Radius
-    "rr" => 0.2,                   #Boid Reproduction Radius
+    "rr" => 0.05,                   #Boid Reproduction Radius
     "cr" => 0.02,                  #Boid Collision Radius
     "cn" => 0,                     #Boid Child Number
     "neighbors" => Int32[],        #Boid Initial neighbors

@@ -112,22 +112,45 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
         if @inbounds  dist < d_rr[idx] && d_sx[idx] != d_sx[jdx]
             #Death dynamics - Here I use a accumulated random selector for killing a particle
             ############################################################################################################################
-            max_r = 0
-            for ldx in 1:nₚₐᵣₜₛ
-                max_r += d_ϕ[ldx]
-            end
-            r = max_r * rand()
 
-            kdx = 0
-            sum = 0
-            while sum <= r && kdx < nₚₐᵣₜₛ
-                kdx+=1
-                sum+=d_ϕ[kdx]
-            end
+            #BUG this is givin kill high probability to high fitness, should be opposite
+#             # I need to exclude the boids with lifetime 0 from this
+
+            #Roulette kill
+#             max_r = 0
+#             for ldx in 1:nₚₐᵣₜₛ
+#                 max_r += d_ϕ[ldx]
+#             end
+#
+#             kdx = 0
+#             while true
+#                 kdx = 0
+#                 sum = 0
+#                 r = max_r * rand()
+#                 while sum < r && kdx < nₚₐᵣₜₛ
+#                     kdx+=1
+#                     sum += (max_r - d_ϕ[kdx])
+#                 end
+#                 if d_τ[kdx] > 0
+#                     break
+#                 end
+#             end
+
+            #Kill Worst
+            ############################################################################################################################
+#             kdx = 1
+#             min_ϕ = Inf
+#             for ldx in 1:nₚₐᵣₜₛ
+#                 if min_ϕ > d_ϕ[ldx] && d_τ[ldx] > 0
+#                     kdx = ldx
+#                 end
+#             end
+
             ############################################################################################################################
 
             #Assign new boid to the position the previous one was killed
             ############################################################################################################################
+            #Crossover
             for ldx in 1:size(W₁,2)
                 for mdx in size(W₁,3)
                     if rand() < 0.5
@@ -164,10 +187,23 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
                 end
             end
 
+            #Select Best
+#             if d_ϕ[idx] > d_ϕ[jdx]
+#                 W₁[kdx,:,:] .= W₁[idx,:,:] .+ 2.0 * μ * (rand() - 0.5)
+#                 W₂[kdx,:,:] .= W₂[idx,:,:] .+ 2.0 * μ * (rand() - 0.5)
+#                 b₁[kdx,:] .= b₁[idx,:] .+ 2.0 * μ * (rand() - 0.5)
+#                 b₂[kdx,:] .= b₂[idx,:] .+ 2.0 * μ * (rand() - 0.5)
+#             else
+#                 W₁[kdx,:,:] .= W₁[jdx,:,:] .+ 2.0 * μ * (rand() - 0.5)
+#                 W₂[kdx,:,:] .= W₂[jdx,:,:] .+ 2.0 * μ * (rand() - 0.5)
+#                 b₁[kdx,:] .= b₁[jdx,:] .+ 2.0 * μ * (rand() - 0.5)
+#                 b₂[kdx,:] .= b₂[jdx,:] .+ 2.0 * μ * (rand() - 0.5)
+#             end
+
+            d_τ[kdx] = 0
             d_cn[kdx] = 0
             @inbounds d_cn[idx] += 1
             d_cn[jdx] += 1
-
         end
     end
     ############################################################################################################################
