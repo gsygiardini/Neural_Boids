@@ -29,6 +29,7 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
     fermionic = d_params[15]
     weighted_repr = d_params[16]
     reflect_walls = d_params[17]
+    crossover = d_params[18]
 
     avg_θ = 0.0
     @inbounds d_τ[idx] += 1
@@ -38,7 +39,14 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
     for jdx in 1:nₚₐᵣₜₛ
         if idx != jdx
             dist = 0.0
-            @inbounds fov = (1.0 + cos(d_θ[idx] - d_θ[jdx])) #Field of vision
+            if vision==true
+                # Diference must be limited from -pi/2 to pi/2
+#                 @inbounds fov = (1.0 + cos(mod(d_θ[idx] - d_θ[jdx], ))) #Field of vision
+                @inbounds fov = (1.0 + cos(mod(d_θ[idx] - d_θ[jdx] + π/2, π) - π/2)) / 2.0
+            else
+                fov=1.0
+            end
+
             for kdx in 1:2
                 @inbounds dist += (d_pos[kdx,idx] - d_pos[kdx,jdx])^2
             end
@@ -71,8 +79,8 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
         end
         out[idx,jdx] = tmp
     end
-    @inbounds out[idx,1] = out[idx,1] + b₂[idx]
-#     CUDA.@cuprint(out[1], "\n")
+    @inbounds out[idx,1] = tanh.(out[idx,1] + b₂[idx])
+#     CUDA.@cuprint(out[1,1], "\n")
 
     ############################################################################################################################
 
@@ -80,11 +88,11 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
     ############################################################################################################################
 
     #BUG ### TEST TO SEE IF USING THE FIRST INDEX IS CORRECT
-#     if innertia
+    if innertia==true
         @inbounds d_θ[idx] = mod(d_θ[idx] + π*out[idx,1] * Δt + π, 2.0 * π) - π
-#     else
-#         @inbounds d_θ[idx] = π*out[idx,1]
-#     end
+    else
+        @inbounds d_θ[idx] = π*out[idx,1]
+    end
 
     @inbounds d_pos[1,idx] = d_pos[1,idx] + d_speed[idx] * Δt * cos(d_θ[idx])
     @inbounds d_pos[2,idx] = d_pos[2,idx] + d_speed[idx] * Δt * sin(d_θ[idx])
@@ -102,104 +110,132 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
 
     #Birth Dynamics
     ############################################################################################################################
+    sum_dist = 0.0
     for jdx in 1:nₚₐᵣₜₛ
         dist = 0.0
         for kdx in 1:2
             @inbounds dist += (d_pos[kdx,idx] - d_pos[kdx,jdx])^2
         end
         dist = sqrt(dist)
+        sum_dist += dist
 
         if @inbounds  dist < d_rr[idx] && d_sx[idx] != d_sx[jdx]
             #Death dynamics - Here I use a accumulated random selector for killing a particle
             ############################################################################################################################
 
-            #BUG this is givin kill high probability to high fitness, should be opposite
-#             # I need to exclude the boids with lifetime 0 from this
+            if roulette == true
+                #Roulette kill
+                max_r = 0
+                for ldx in 1:nₚₐᵣₜₛ
+                    max_r += d_ϕ[ldx]
+                end
 
-            #Roulette kill
-            max_r = 0
-            for ldx in 1:nₚₐᵣₜₛ
-                max_r += d_ϕ[ldx]
-            end
-
-            kdx = 0
-            while true
                 kdx = 0
-                r = (nₚₐᵣₜₛ-1) * max_r * rand()
-                while r≥0 && kdx < nₚₐᵣₜₛ
-                    kdx+=1
-                    r -= (max_r - d_ϕ[kdx])
-                end
-                if kdx==0 kdx=1 end
+                while true
+                    kdx = 0
+                    r = (nₚₐᵣₜₛ-1) * max_r * rand()
+                    while r≥0 && kdx < nₚₐᵣₜₛ
+                        kdx+=1
+                        r -= (max_r - d_ϕ[kdx])
+                    end
+                    if kdx==0 kdx=1 end
 
-                if d_τ[kdx] > 1
-                    break
+                    if d_τ[kdx] > 1
+                        break
+                    end
+                end
+            else
+                #Kill Worst
+                ############################################################################################################################
+                kdx = 1
+                min_ϕ = Inf
+                for ldx in 1:nₚₐᵣₜₛ
+                    if min_ϕ > d_ϕ[ldx] && d_τ[ldx] > 1
+                        kdx = ldx
+                    end
                 end
             end
-
-            #Kill Worst
-            ############################################################################################################################
-#             kdx = 1
-#             min_ϕ = Inf
-#             for ldx in 1:nₚₐᵣₜₛ
-#                 if min_ϕ > d_ϕ[ldx] && d_τ[ldx] > 1
-#                     kdx = ldx
-#                 end
-#             end
-
             ############################################################################################################################
 
             #Assign new boid to the position the previous one was killed
             ############################################################################################################################
-            #Crossover
-            for ldx in 1:size(W₁,2)
-                for mdx in size(W₁,3)
+            if crossover == true
+                #Crossover
+                for ldx in 1:size(W₁,2)
+                    for mdx in size(W₁,3)
+                        if rand() < 0.5
+                            @inbounds W₁[kdx,ldx,mdx] = (1.0 - μ) * W₁[idx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
+                        else
+                            W₁[kdx,ldx,mdx] = (1.0 - μ) * W₁[jdx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
+                        end
+                    end
+                end
+
+                for ldx in 1:size(W₂,2)
+                    for mdx in size(W₂,3)
+                        if rand() < 0.5
+                            @inbounds W₂[kdx,ldx,mdx] = (1.0 - μ) * W₂[idx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
+                        else
+                            W₂[kdx,ldx,mdx] = (1.0 - μ) * W₂[jdx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
+                        end
+                    end
+                end
+
+                for ldx in 1:size(b₁,2)
                     if rand() < 0.5
-                        @inbounds W₁[kdx,ldx,mdx] = W₁[idx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
+                        @inbounds b₁[kdx,ldx] = (1.0 - μ) * b₁[idx,ldx] + 2.0 * μ * (rand() - 0.5)
                     else
-                        W₁[kdx,ldx,mdx] = W₁[jdx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
+                        b₁[kdx,ldx] = (1.0 - μ) * b₁[jdx,ldx] + 2.0 * μ * (rand() - 0.5)
+                    end
+                end
+
+                for ldx in 1:size(b₂,2)
+                    if rand() < 0.5
+                        @inbounds b₂[kdx,ldx] = (1.0 - μ) * b₂[idx,ldx] + 2.0 * μ * (rand() - 0.5)
+                    else
+                        b₂[kdx,ldx] = (1.0 - μ) * b₂[jdx,ldx] + 2.0 * μ * (rand() - 0.5)
+                    end
+                end
+            else
+                ############################################################################################################################
+                #Select Best
+                for ldx in 1:size(W₁,2)
+                    for mdx in size(W₁,3)
+                        if d_ϕ[idx] > d_ϕ[jdx]
+                            @inbounds W₁[kdx,ldx,mdx] = (1.0 - μ) * W₁[idx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
+                        else
+                            W₁[kdx,ldx,mdx] = (1.0 - μ) * W₁[jdx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
+                        end
+                    end
+                end
+
+                for ldx in 1:size(W₂,2)
+                    for mdx in size(W₂,3)
+                        if d_ϕ[idx] > d_ϕ[jdx]
+                            @inbounds W₂[kdx,ldx,mdx] = (1.0 - μ) * W₂[idx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
+                        else
+                            W₂[kdx,ldx,mdx] = (1.0 - μ) * W₂[jdx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
+                        end
+                    end
+                end
+
+                for ldx in 1:size(b₁,2)
+                    if d_ϕ[idx] > d_ϕ[jdx]
+                        @inbounds b₁[kdx,ldx] = (1.0 - μ) * b₁[idx,ldx] + 2.0 * μ * (rand() - 0.5)
+                    else
+                        b₁[kdx,ldx] = (1.0 - μ) * b₁[jdx,ldx] + 2.0 * μ * (rand() - 0.5)
+                    end
+                end
+
+                for ldx in 1:size(b₂,2)
+                    if d_ϕ[idx] > d_ϕ[jdx]
+                        @inbounds b₂[kdx,ldx] = (1.0 - μ) * b₂[idx,ldx] + 2.0 * μ * (rand() - 0.5)
+                    else
+                        b₂[kdx,ldx] = (1.0 - μ) * b₂[jdx,ldx] + 2.0 * μ * (rand() - 0.5)
                     end
                 end
             end
-
-            for ldx in 1:size(W₂,2)
-                for mdx in size(W₂,3)
-                    if rand() < 0.5
-                        @inbounds W₂[kdx,ldx,mdx] = W₂[idx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
-                    else
-                        W₂[kdx,ldx,mdx] = W₂[jdx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
-                    end
-                end
-            end
-
-            for ldx in 1:size(b₁,2)
-                if rand() < 0.5
-                    @inbounds b₁[kdx,ldx] = b₁[idx,ldx] + 2.0 * μ * (rand() - 0.5)
-                else
-                    b₁[kdx,ldx] = b₁[jdx,ldx] + 2.0 * μ * (rand() - 0.5)
-                end
-            end
-
-            for ldx in 1:size(b₂,2)
-                if rand() < 0.5
-                    @inbounds b₂[kdx,ldx] = b₂[idx,ldx] + 2.0 * μ * (rand() - 0.5)
-                else
-                    b₂[kdx,ldx] = b₂[jdx,ldx] + 2.0 * μ * (rand() - 0.5)
-                end
-            end
-
-            #Select Best
-#             if d_ϕ[idx] > d_ϕ[jdx]
-#                 W₁[kdx,:,:] .= W₁[idx,:,:] .+ 2.0 * μ * (rand() - 0.5)
-#                 W₂[kdx,:,:] .= W₂[idx,:,:] .+ 2.0 * μ * (rand() - 0.5)
-#                 b₁[kdx,:] .= b₁[idx,:] .+ 2.0 * μ * (rand() - 0.5)
-#                 b₂[kdx,:] .= b₂[idx,:] .+ 2.0 * μ * (rand() - 0.5)
-#             else
-#                 W₁[kdx,:,:] .= W₁[jdx,:,:] .+ 2.0 * μ * (rand() - 0.5)
-#                 W₂[kdx,:,:] .= W₂[jdx,:,:] .+ 2.0 * μ * (rand() - 0.5)
-#                 b₁[kdx,:] .= b₁[jdx,:] .+ 2.0 * μ * (rand() - 0.5)
-#                 b₂[kdx,:] .= b₂[jdx,:] .+ 2.0 * μ * (rand() - 0.5)
-#             end
+            ###########################################################################################################################
 
             d_τ[kdx] = 1
             d_cn[kdx] = 0
@@ -209,8 +245,10 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
     end
     ############################################################################################################################
     #Now we gotta calculate the fitness values
-    @inbounds d_ϕ[idx] = d_cn[idx] / d_τ[idx]
+#     @inbounds d_ϕ[idx] = γ*(d_cn[idx] / d_τ[idx])
     #I have to add the penalty for when a particle gets close to another
+
+    @inbounds d_ϕ[idx] = γ * exp(- sum_dist / nₚₐᵣₜₛ)
 
     return
 end
@@ -231,6 +269,44 @@ function order_parameter(nₚₐᵣₜₛ, d_pos, d_θ, d_speed)
 
     return ψ
 end
+
+function calculate_vorticity(nₚₐᵣₜₛ, pos, θₛ)
+    vorticity = zeros(nₚₐᵣₜₛ)
+
+    for idx in 1:nₚₐᵣₜₛ
+        x, y, θ = pos[1, idx], pos[2, idx], θₛ[idx]
+        Δx = 1e-2
+        Δy = 1e-2
+
+        vx = cos(θ)
+        vy = sin(θ)
+
+        # Approximate partial derivatives using central difference
+        dvx_dy = (cos(θ + Δy) - cos(θ - Δy)) / (2Δy)
+        dvy_dx = (sin(θ + Δx) - sin(θ - Δx)) / (2Δx)
+
+        # Calculate vorticity
+        vorticity[idx] = dvx_dy - dvy_dx
+    end
+
+    return vorticity
+end
+
+# WRONG
+# function vorticity(nₚₐᵣₜₛ, pos, θ)
+#     n = length(pos)
+#     ω = zeros(nₚₐᵣₜₛ)
+#
+#     for i in 1:nₚₐᵣₜₛ
+#         # Calculate the vorticity at particle i
+#         ω_x = sum(θ[j] * (pos[j][2] - pos[i][2]) for j in 1:nₚₐᵣₜₛ if j != i)
+#         ω_y = sum(θ[j] * (pos[i][1] - pos[j][1]) for j in 1:nₚₐᵣₜₛ if j != i)
+#         ω[i] = ω_x - ω_y
+#     end
+#
+#     return ω
+# end
+
 #
 # function collisions(Boids::Vector{Boid})
 #     #Number of particle collisions

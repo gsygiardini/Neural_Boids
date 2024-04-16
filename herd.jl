@@ -6,23 +6,24 @@ parameters_dict = Dict(
     "anim_steps" => 5e2,          #Number of steps in the animation
     "nₚₐᵣₜₛ" => 100,               #Maximum number of particles in the simulation
     "avg_repr" => false,           #Crossover reproduction (true) vs Select best "genes"
-    "roulette" => false,           #Kill boids with weighted probabilities
+    "roulette" => true,           #Kill boids with weighted probabilities
     "weighted_repr" => false,      #Reproduction has a chance to happen depending of fitness difference
     "reflect_walls" => false,      #Confine boids in a closed space(true) vs Periodic boundary condition (false)
-    "vision" => false,             #Boids can only perceive other boids at a certain direction
+    "vision" => true,             #Boids can only perceive other boids at a certain direction
+    "crossover" => true,
     "potential" => false,          #Boids are penalized for touching each other
     "innertia" => false,           #Boids have rotational innertia(true)
     "fermionic" => false,          #Boids have a hard core(true)
     "box_size" => 1,               #Size of the reservoir where boids are in
     "ε" => 0.5,                    #DB scan parameter
     "min_pts" => 3,                #DB minimum number of points per cluster
-    "μ" => 0.0,                    #Rate of mutation
-    "β" => 250,                    #Boids vision distance center_of_mass .+= ((exp(- "β" *dist^2.0)/length(Boids)) * fov ) .* boid₂.pos
-    "γ" => 0.5,                    #Offspring rate multiplier
+    "μ" => 1e-3,                   #Rate of mutation
+    "β" => 5e3,                    #Boids vision distance center_of_mass .+= ((exp(- "β" *dist^2.0)/length(Boids)) * fov ) .* boid₂.pos
+    "γ" => 1.0,                    #Fitness multiplier
     "κ" => 50.0,                   #S curve to avoid boids touching coefficient 1/(1 - exp(-κ(x-x0)))
     "x₀" => 0.07,                  #S curve to avoid boids touching center value 1/(1 - exp(-κ(x-x0)))
     "r" => 0.1,                    #Boid Interaction Radius
-    "rr" => 0.05,                   #Boid Reproduction Radius
+    "rr" => 0.03,                   #Boid Reproduction Radius
     "cr" => 0.02,                  #Boid Collision Radius
     "cn" => 0,                     #Boid Child Number
     "neighbors" => Int32[],        #Boid Initial neighbors
@@ -31,7 +32,7 @@ parameters_dict = Dict(
     "Δt" => 1e-2                   #
 )
 
-function update_boids!(parameters_dict::Dict, Δt::Float64)
+function update_boids!(parameters_dict::Dict)
     nₚₐᵣₜₛ = parameters_dict["nₚₐᵣₜₛ"]
     total_steps = parameters_dict["total_steps"]
 
@@ -52,6 +53,7 @@ function update_boids!(parameters_dict::Dict, Δt::Float64)
                  parameters_dict["fermionic"],
                  parameters_dict["weighted_repr"],
                  parameters_dict["reflect_walls"],
+                 parameters_dict["crossover"],
                 ] |> cu
 
     d_r = Array{Float32}(undef, nₚₐᵣₜₛ)
@@ -92,8 +94,8 @@ function update_boids!(parameters_dict::Dict, Δt::Float64)
     hiddenₗₑₙ = 3
     outₗₑₙ = 1
 
-    W₁ = randn(Float32, nₚₐᵣₜₛ, hiddenₗₑₙ, inputₗₑₙ) |> cu
-    W₂ = randn(Float32, nₚₐᵣₜₛ, outₗₑₙ, hiddenₗₑₙ) |> cu
+    W₁ = randn(Float32, nₚₐᵣₜₛ, hiddenₗₑₙ, inputₗₑₙ) * sqrt(2 / (hiddenₗₑₙ + inputₗₑₙ)) |> cu
+    W₂ = randn(Float32, nₚₐᵣₜₛ, outₗₑₙ, hiddenₗₑₙ) * sqrt(2 / (outₗₑₙ + hiddenₗₑₙ)) |> cu
 
     b₁ = randn(Float32, nₚₐᵣₜₛ, hiddenₗₑₙ) |> cu
     b₂ = randn(Float32, nₚₐᵣₜₛ, outₗₑₙ) |> cu
@@ -102,18 +104,22 @@ function update_boids!(parameters_dict::Dict, Δt::Float64)
     x = zeros(Float32, nₚₐᵣₜₛ, hiddenₗₑₙ) |> cu
     avg_coord = zeros(Float32, nₚₐᵣₜₛ, 3) |> cu
 
-    t = [1:total_steps/1000]
+    measure_every = 1e3
+    t = [1:total_steps/measure_every]
     ψ = []
+    ω = []#randn(Float32, nₚₐᵣₜₛ) |> cu
 
     for τ in 1:total_steps
         @cuda threads=nₚₐᵣₜₛ update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_speed, W₁, W₂, b₁, b₂, x, out, avg_coord)
 
-        if τ % 100 == 0
+        if τ % 1000 == 0
             println("step: $τ of $total_steps")
         end
 
-        if τ % 1000 == 0
+        if τ % measure_every == 0
             push!(ψ,order_parameter(nₚₐᵣₜₛ, d_pos|>cpu, d_θ|>cpu, d_speed|>cpu))
+            push!(ω,calculate_vorticity(nₚₐᵣₜₛ, d_pos|>cpu, d_θ|>cpu))
+#             println((W₁ |> cpu)[1,:,:])
         end
     end
 
@@ -124,12 +130,16 @@ function update_boids!(parameters_dict::Dict, Δt::Float64)
 
         θ = d_θ |> cpu
         pos = d_pos |> cpu
+#         W₁ |> cpu
+#         W₂ |> cpu
+#         b₁ |> cpu
+#         b₂ |> cpu
 
         Plots.scatter(pos[1,:], pos[2,:], aspect_ratio=:equal, legend=false)
         quiver!(pos[1,:], pos[2,:], quiver=(0.02*cos.(θ), 0.02*sin.(θ)), color=:blue)
 
-        xlims!(0, 1)
-        ylims!(0, 1)
+        xlims!(0, parameters_dict["box_size"])
+        ylims!(0, parameters_dict["box_size"])
 
         if τ % 100 == 0
             println("animation step: $τ of $anim_size")
@@ -140,9 +150,12 @@ function update_boids!(parameters_dict::Dict, Δt::Float64)
 
     plot(t, ψ, xlims=(1,Inf), label="Order Parameter Over Time")
     savefig("./results/order_param.png")
+
+    plot(t, ω[1,:], xlims=(1,Inf), label="Vorticity Over Time")
+    savefig("./results/vorticity.png")
 end
 
-update_boids!(parameters_dict, 1e-2)
+update_boids!(parameters_dict)
 #     Plots.scatter([b.pos[1] for b in updated_Boids], [b.pos[2] for b in updated_Boids], aspect_ratio=:equal, legend=false)
 
 #     angles = [boid.θ for boid in updated_Boids]
