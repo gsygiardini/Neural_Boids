@@ -39,18 +39,24 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
     for jdx in 1:nₚₐᵣₜₛ
         if idx != jdx
             dist = 0.0
+            @inbounds Δx = d_pos[1,idx] - d_pos[1,jdx]
+            @inbounds Δy = d_pos[2,idx] - d_pos[2,jdx]
+
             if vision==true
                 # Diference must be limited from -pi/2 to pi/2
-#                 @inbounds fov = (1.0 + cos(mod(d_θ[idx] - d_θ[jdx], ))) #Field of vision
-                @inbounds fov = (1.0 + cos(mod(d_θ[idx] - d_θ[jdx] + π/2, π) - π/2)) / 2.0
+                α = atan(Δy,Δx)
+
+                Δθ = d_θ[idx] - α
+                if abs(Δθ) > π/2.0
+                    Δθ = π/2.0
+                end
+                @inbounds fov = (1.0 + cos(Δθ)) / 2.0 #Field of vision
+#                 CUDA.@cuprint(fov,"\n")
             else
                 fov=1.0
             end
 
-            for kdx in 1:2
-                @inbounds dist += (d_pos[kdx,idx] - d_pos[kdx,jdx])^2
-            end
-            dist = sqrt(dist)
+            dist = sqrt(Δx^2.0 + Δy^2.0)
 
             @inbounds avg_θ += ((exp(-β*dist^2.0)/nₚₐᵣₜₛ)) * fov * d_θ[jdx]
 
