@@ -167,38 +167,50 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
             ############################################################################################################################
             if crossover == true
                 #Crossover
-                for ldx in 1:size(W₁,2)
-                    for mdx in size(W₁,3)
-                        if rand() < 0.5
+                if rand() < 0.5
+                    for ldx in 1:size(W₁,2)
+                        for mdx in size(W₁,3)
                             @inbounds W₁[kdx,ldx,mdx] = (1.0 - μ) * W₁[idx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
-                        else
+                        end
+                    end
+                else
+                    for ldx in 1:size(W₁,2)
+                        for mdx in size(W₁,3)
                             W₁[kdx,ldx,mdx] = (1.0 - μ) * W₁[jdx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
                         end
                     end
                 end
 
-                for ldx in 1:size(W₂,2)
-                    for mdx in size(W₂,3)
-                        if rand() < 0.5
+                if rand() < 0.5
+                    for ldx in 1:size(W₂,2)
+                        for mdx in size(W₂,3)
                             @inbounds W₂[kdx,ldx,mdx] = (1.0 - μ) * W₂[idx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
-                        else
+                        end
+                    end
+                else
+                    for ldx in 1:size(W₂,2)
+                        for mdx in size(W₂,3)
                             W₂[kdx,ldx,mdx] = (1.0 - μ) * W₂[jdx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
                         end
                     end
                 end
 
-                for ldx in 1:size(b₁,2)
-                    if rand() < 0.5
+                if rand() < 0.5
+                    for ldx in 1:size(b₁,2)
                         @inbounds b₁[kdx,ldx] = (1.0 - μ) * b₁[idx,ldx] + 2.0 * μ * (rand() - 0.5)
-                    else
+                    end
+                else
+                    for ldx in 1:size(b₁,2)
                         b₁[kdx,ldx] = (1.0 - μ) * b₁[jdx,ldx] + 2.0 * μ * (rand() - 0.5)
                     end
                 end
 
-                for ldx in 1:size(b₂,2)
-                    if rand() < 0.5
+                if rand() < 0.5
+                    for ldx in 1:size(b₂,2)
                         @inbounds b₂[kdx,ldx] = (1.0 - μ) * b₂[idx,ldx] + 2.0 * μ * (rand() - 0.5)
-                    else
+                    end
+                else
+                    for ldx in 1:size(b₂,2)
                         b₂[kdx,ldx] = (1.0 - μ) * b₂[jdx,ldx] + 2.0 * μ * (rand() - 0.5)
                     end
                 end

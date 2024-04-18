@@ -17,7 +17,7 @@ parameters_dict = Dict(
     "box_size" => 1,               #Size of the reservoir where boids are in
     "ε" => 0.5,                    #DB scan parameter
     "min_pts" => 3,                #DB minimum number of points per cluster
-    "μ" => 1e-3,                   #Rate of mutation
+    "μ" => 1e-5,                   #Rate of mutation
     "β" => 5e3,                    #Boids vision distance center_of_mass .+= ((exp(- "β" *dist^2.0)/length(Boids)) * fov ) .* boid₂.pos
     "γ" => 1.0,                    #Fitness multiplier
     "κ" => 50.0,                   #S curve to avoid boids touching coefficient 1/(1 - exp(-κ(x-x0)))
