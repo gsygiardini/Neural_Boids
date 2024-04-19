@@ -6,7 +6,7 @@ parameters_dict = Dict(
     "anim_steps" => 5e2,          #Number of steps in the animation
     "nₚₐᵣₜₛ" => 100,               #Maximum number of particles in the simulation
     "avg_repr" => false,           #Crossover reproduction (true) vs Select best "genes"
-    "roulette" => false,           #Kill boids with weighted probabilities
+    "roulette" => false,           #Kill boids with weighted probabilities -> BUG FIX ROULETTE
     "weighted_repr" => false,      #Reproduction has a chance to happen depending of fitness difference
     "reflect_walls" => false,      #Confine boids in a closed space(true) vs Periodic boundary condition (false)
     "vision" => true,             #Boids can only perceive other boids at a certain direction
@@ -17,7 +17,7 @@ parameters_dict = Dict(
     "box_size" => 1,               #Size of the reservoir where boids are in
     "ε" => 0.5,                    #DB scan parameter
     "min_pts" => 3,                #DB minimum number of points per cluster
-    "μ" => 1e-5,                   #Rate of mutation
+    "μ" => 1e-6,                   #Rate of mutation
     "β" => 5e3,                    #Boids vision distance center_of_mass .+= ((exp(- "β" *dist^2.0)/length(Boids)) * fov ) .* boid₂.pos
     "γ" => 1.0,                    #Fitness multiplier
     "κ" => 50.0,                   #S curve to avoid boids touching coefficient 1/(1 - exp(-κ(x-x0)))
@@ -108,6 +108,7 @@ function update_boids!(parameters_dict::Dict)
     t = [1:total_steps/measure_every]
     ψ = []
     ω = []#randn(Float32, nₚₐᵣₜₛ) |> cu
+    Δ = []
 
     for τ in 1:total_steps
         @cuda threads=nₚₐᵣₜₛ update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_speed, W₁, W₂, b₁, b₂, x, out, avg_coord)
@@ -117,8 +118,10 @@ function update_boids!(parameters_dict::Dict)
         end
 
         if τ % measure_every == 0
-            push!(ψ,order_parameter(nₚₐᵣₜₛ, d_pos|>cpu, d_θ|>cpu, d_speed|>cpu))
-            push!(ω,calculate_vorticity(nₚₐᵣₜₛ, d_pos|>cpu, d_θ|>cpu))
+            ψᵢ,Δᵢ = order_parameter(nₚₐᵣₜₛ, d_pos|>cpu, d_θ|>cpu, d_speed|>cpu)
+            push!(ψ,ψᵢ)
+            push!(Δ,Δᵢ)
+#             push!(ω,calculate_vorticity(nₚₐᵣₜₛ, d_pos|>cpu, d_θ|>cpu))
 #             println((W₁ |> cpu)[1,:,:])
         end
     end
@@ -146,35 +149,35 @@ function update_boids!(parameters_dict::Dict)
         end
     end
 
-    gif(anim, "./results/boid_animation.mp4", fps = 10)
+    μ = parameters_dict["μ"]
+    β = parameters_dict["β"]
+    γ = parameters_dict["γ"]
+    vision = parameters_dict["vision"]
+    innertia = parameters_dict["innertia"]
+    roulette = parameters_dict["roulette"]
+    crossover = parameters_dict["crossover"]
+
+    folder_path = "./results/steps:$total_steps-n_parts:$nₚₐᵣₜₛ-vision:$vision-innertia:$innertia-roulette:$roulette-crossover:$crossover-mutation:$μ"
+
+    if !isdir(folder_path)
+        # Create the folder if it does not exist
+        mkdir(folder_path)
+        println("Folder created: $folder_path")
+    else
+        println("Folder already exists: $folder_path")
+    end
+
+    gif(anim, "$folder_path/boid_animation.mp4", fps = 10)
 
     plot(t, ψ, xlims=(1,Inf), label="Order Parameter Over Time")
-    savefig("./results/order_param.png")
+    savefig("$folder_path/order_param.png")
 
-    plot(t, ω[1,:], xlims=(1,Inf), label="Vorticity Over Time")
-    savefig("./results/vorticity.png")
+    plot(t, Δ, xlims=(1,Inf), label="Average Distance Over Time")
+    savefig("$folder_path/avg_dist.png")
+
+#     println(ω)
+#     plot(t, ω[:,1], label="Vorticity Over Time")
+#     savefig("$folder_path/vorticity.png")
 end
 
 update_boids!(parameters_dict)
-#     Plots.scatter([b.pos[1] for b in updated_Boids], [b.pos[2] for b in updated_Boids], aspect_ratio=:equal, legend=false)
-
-#     angles = [boid.θ for boid in updated_Boids]
-#     positions_x = [boid.pos[1] for boid in updated_Boids]
-#     positions_y = [boid.pos[2] for boid in updated_Boids]
-#
-#     quiver!(positions_x, positions_y, quiver=(0.02*cos.(angles), 0.02*sin.(angles)), color=:blue)
-#
-#     xlims!(0, 1)
-#     ylims!(0, 1)
-#
-#     if τ % 100 == 0
-#         n_boids = length(updated_Boids)
-#         println("step: $τ, #boids: $n_boids")
-#     end
-# end
-
-# Save the animation to a GIF file using Plots' gif function
-# gif(anim, "./results/boid_animation.mp4", fps = 10)
-
-# println("Saving Models")
-# save_models(updated_Boids)

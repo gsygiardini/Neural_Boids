@@ -51,7 +51,6 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
                     Δθ = π/2.0
                 end
                 @inbounds fov = (1.0 + cos(Δθ)) / 2.0 #Field of vision
-#                 CUDA.@cuprint(fov,"\n")
             else
                 fov=1.0
             end
@@ -136,13 +135,17 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
                     max_r += d_ϕ[ldx]
                 end
 
+                for ldx in 1:nₚₐᵣₜₛ
+                    max_inv_r += (max_r - d_ϕ[ldx])
+                end
+
                 kdx = 0
                 while true
                     kdx = 0
-                    r = (nₚₐᵣₜₛ-1) * max_r * rand()
+                    r = max_r * rand()
                     while r≥0 && kdx < nₚₐᵣₜₛ
                         kdx+=1
-                        r -= (max_r - d_ϕ[kdx])
+                        r -= (max_inv_r - d_ϕ[kdx])
                     end
                     if kdx==0 kdx=1 end
 
@@ -150,6 +153,7 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
                         break
                     end
                 end
+
             else
                 #Kill Worst
                 ############################################################################################################################
@@ -266,7 +270,7 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
 #     @inbounds d_ϕ[idx] = γ*(d_cn[idx] / d_τ[idx])
     #I have to add the penalty for when a particle gets close to another
 
-    @inbounds d_ϕ[idx] = γ * exp(- sum_dist / nₚₐᵣₜₛ)
+    @inbounds d_ϕ[idx] = γ * exp(sum_dist / (2*nₚₐᵣₜₛ))
 
     return
 end
@@ -274,18 +278,29 @@ end
 function order_parameter(nₚₐᵣₜₛ, d_pos, d_θ, d_speed)
     vx = 0
     vy = 0
+    sum_dist = 0
     sum_speed = 0
 
     for idx in 1:nₚₐᵣₜₛ
         vx += d_speed[idx] * cos(d_θ[idx])
         vy += d_speed[idx] * sin(d_θ[idx])
         sum_speed = sum_speed + d_speed[idx]
+
+        for jdx in 1:nₚₐᵣₜₛ
+            if idx != jdx
+                @inbounds Δx = d_pos[1,idx] - d_pos[1,jdx]
+                @inbounds Δy = d_pos[2,idx] - d_pos[2,jdx]
+                sum_dist += sqrt(Δx^2 + Δy^2)
+            end
+        end
     end
-    avg_speed = sum_speed/nₚₐᵣₜₛ
+
+    avg_dist = sum_dist/(2*nₚₐᵣₜₛ)
+    avg_speed = sum_speed/(2*nₚₐᵣₜₛ)
 
     ψ = sqrt(vx^2 + vy^2)/(nₚₐᵣₜₛ*avg_speed)
 
-    return ψ
+    return ψ, avg_dist
 end
 
 function calculate_vorticity(nₚₐᵣₜₛ, pos, θₛ)
