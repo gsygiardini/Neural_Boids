@@ -2,9 +2,9 @@ include("./dbscan.jl")
 include("./herd_functions.jl")
 
 parameters_dict = Dict(
-    "total_steps" => 1e7,          #Number of steps in the simulation
+    "total_steps" => 1e5,          #Number of steps in the simulation
     "anim_steps" => 5e2,          #Number of steps in the animation
-    "nₚₐᵣₜₛ" => 70,               #Maximum number of particles in the simulation
+    "nₚₐᵣₜₛ" => 40,               #Maximum number of particles in the simulation
     "avg_repr" => false,           #Crossover reproduction (true) vs Select best "genes"
     "roulette" => false,           #Kill boids with weighted probabilities -> BUG FIX ROULETTE
     "weighted_repr" => false,      #Reproduction has a chance to happen depending of fitness difference
@@ -17,13 +17,13 @@ parameters_dict = Dict(
     "box_size" => 1,               #Size of the reservoir where boids are in
     "ε" => 0.5,                    #DB scan parameter
     "min_pts" => 3,                #DB minimum number of points per cluster
-    "μ" => 1e-6,                   #Rate of mutation
-    "β" => 25,                    #Boids vision distance center_of_mass .+= ((exp(- "β" *dist^2.0)/length(Boids)) * fov ) .* boid₂.pos
-    "γ" => 10.0,                    #Fitness multiplier
+    "μ" => 2e-4,                   #Rate of mutation
+    "β" => 20,#best 25?            #Boids vision distance center_of_mass .+= ((exp(- "β" *dist^2.0)/length(Boids)) * fov ) .* boid₂.pos
+    "γ" => 1.0,                   #Fitness multiplier
     "κ" => 50.0,                   #S curve to avoid boids touching coefficient 1/(1 - exp(-κ(x-x0)))
     "x₀" => 0.07,                  #S curve to avoid boids touching center value 1/(1 - exp(-κ(x-x0)))
     "r" => 0.1,                    #Boid Interaction Radius
-    "rr" => 0.03,                   #Boid Reproduction Radius
+    "rr" => 0.03,                  #Boid Reproduction Radius
     "cr" => 0.02,                  #Boid Collision Radius
     "cn" => 0,                     #Boid Child Number
     "neighbors" => Int32[],        #Boid Initial neighbors
@@ -109,7 +109,29 @@ function update_boids!(parameters_dict::Dict)
     ψ = []
     ω = []
     Δ = []
+    ϕ = []
+    col = []
 
+    println("First Animation")
+    anim_size = parameters_dict["anim_steps"]
+    anim₁ = @animate for τ in 1:anim_size
+        @cuda threads=nₚₐᵣₜₛ update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_speed, W₁, W₂, b₁, b₂, x, out, avg_coord)
+
+        θ = d_θ |> cpu
+        pos = d_pos |> cpu
+
+        Plots.scatter(pos[1,:], pos[2,:], aspect_ratio=:equal, legend=false)
+        quiver!(pos[1,:], pos[2,:], quiver=(0.02*cos.(θ), 0.02*sin.(θ)), color=:blue)
+
+        xlims!(0, parameters_dict["box_size"])
+        ylims!(0, parameters_dict["box_size"])
+
+        if τ % 100 == 0
+            println("animation step: $τ of $anim_size")
+        end
+    end
+
+    println("Starting Simulation")
     for τ in 1:total_steps
         @cuda threads=nₚₐᵣₜₛ update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_speed, W₁, W₂, b₁, b₂, x, out, avg_coord)
 
@@ -118,26 +140,24 @@ function update_boids!(parameters_dict::Dict)
         end
 
         if τ % measure_every == 0
-            ψᵢ,Δᵢ = order_parameter(nₚₐᵣₜₛ, d_pos|>cpu, d_θ|>cpu, d_speed|>cpu)
+            ψᵢ,Δᵢ,colᵢ,ϕᵢ = order_parameter(parameters_dict,nₚₐᵣₜₛ, d_pos|>cpu, d_θ|>cpu, d_speed|>cpu, d_ϕ|>cpu)
             ωᵢ = calculate_vorticity(parameters_dict,nₚₐᵣₜₛ, d_pos|>cpu, d_θ|>cpu)
             push!(ψ,ψᵢ)
             push!(Δ,Δᵢ)
             push!(ω,ωᵢ)
+            push!(ϕ,ϕᵢ)
+            push!(col,colᵢ)
 #             println((W₁ |> cpu)[1,:,:])
         end
     end
 
-    println("Starting Animation")
+    println("Second Animation")
     anim_size = parameters_dict["anim_steps"]
-    anim = @animate for τ in 1:anim_size
+    anim₂ = @animate for τ in 1:anim_size
         @cuda threads=nₚₐᵣₜₛ update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_speed, W₁, W₂, b₁, b₂, x, out, avg_coord)
 
         θ = d_θ |> cpu
         pos = d_pos |> cpu
-#         W₁ |> cpu
-#         W₂ |> cpu
-#         b₁ |> cpu
-#         b₂ |> cpu
 
         Plots.scatter(pos[1,:], pos[2,:], aspect_ratio=:equal, legend=false)
         quiver!(pos[1,:], pos[2,:], quiver=(0.02*cos.(θ), 0.02*sin.(θ)), color=:blue)
@@ -157,8 +177,9 @@ function update_boids!(parameters_dict::Dict)
     innertia = parameters_dict["innertia"]
     roulette = parameters_dict["roulette"]
     crossover = parameters_dict["crossover"]
+    reflect_walls = parameters_dict["reflect_walls"]
 
-    folder_path = "./results/steps:$total_steps-n_parts:$nₚₐᵣₜₛ-vision:$vision-innertia:$innertia-roulette:$roulette-crossover:$crossover-mutation:$μ"
+    folder_path = "./results/steps:$total_steps-n_parts:$nₚₐᵣₜₛ-vision:$vision-innertia:$innertia-roulette:$roulette-crossover:$crossover-reflect_walls=$reflect_walls-mutation:$μ"
 
     if !isdir(folder_path)
         # Create the folder if it does not exist
@@ -168,7 +189,8 @@ function update_boids!(parameters_dict::Dict)
         println("Folder already exists: $folder_path")
     end
 
-    gif(anim, "$folder_path/boid_animation.mp4", fps = 10)
+    gif(anim₁, "$folder_path/boid_animation₁.mp4", fps = 10)
+    gif(anim₂, "$folder_path/boid_animation₂.mp4", fps = 10)
 
     plot(t, ψ, xlims=(1,Inf), label="Order Parameter Over Time")
     savefig("$folder_path/order_param.png")
@@ -176,9 +198,17 @@ function update_boids!(parameters_dict::Dict)
     plot(t, Δ, xlims=(1,Inf), label="Average Distance Over Time")
     savefig("$folder_path/avg_dist.png")
 
-    println(ω)
     plot(t, ω, label="Circulation Over Time")
     savefig("$folder_path/circulation.png")
+
+    plot(t, ϕ, label="Avg Fitness Over Time")
+    savefig("$folder_path/avg_fitness.png")
+
+    plot(t, col, label="Collisions Over Time")
+    savefig("$folder_path/collisions.png")
+
+    histogram(d_θ|>cpu, bins=30, label="Angle Histogram")
+    savefig("$folder_path/angle_histogram.png")
 end
 
 update_boids!(parameters_dict)
