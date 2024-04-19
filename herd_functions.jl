@@ -59,8 +59,11 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
 
             @inbounds avg_θ += ((exp(-β*dist^2.0)/nₚₐᵣₜₛ)) * fov * d_θ[jdx]
 
+            #Test to verify if the weights were small or big for a given distance
+#             CUDA.@cuprint(dist,"------>",(exp(-β*dist^2) * fov),"\n")
+
             for kdx in 1:2
-                @inbounds avg_coord[idx,kdx] += ((exp(-β*dist^2)/nₚₐᵣₜₛ) * fov) * d_pos[kdx,jdx]
+                @inbounds avg_coord[idx,kdx] += (exp(-β*dist^2) * fov) * d_pos[kdx,jdx]
             end
         end
     end
@@ -94,7 +97,8 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
 
     #BUG ### TEST TO SEE IF USING THE FIRST INDEX IS CORRECT
     if innertia==true
-        @inbounds d_θ[idx] = mod(d_θ[idx] + π*out[idx,1] * Δt + π, 2.0 * π) - π
+#         @inbounds d_θ[idx] = mod(d_θ[idx] + π*out[idx,1] * Δt + π, 2.0 * π) - π
+        @inbounds d_θ[idx] = mod(d_θ[idx] + 0.1*π*out[idx,1] + π, 2.0 * π) - π
     else
         @inbounds d_θ[idx] = π*out[idx,1]
     end
@@ -122,7 +126,8 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
             @inbounds dist += (d_pos[kdx,idx] - d_pos[kdx,jdx])^2
         end
         dist = sqrt(dist)
-        sum_dist += dist
+#         sum_dist += dist
+        sum_dist += (exp(-15*dist^2.0)/nₚₐᵣₜₛ)
 
         if @inbounds  dist < d_rr[idx] && d_sx[idx] != d_sx[jdx]
             #Death dynamics - Here I use a accumulated random selector for killing a particle
@@ -131,21 +136,23 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
             if roulette == true
                 #Roulette kill
                 max_r = 0
+                max_cmp_r = 0
+
                 for ldx in 1:nₚₐᵣₜₛ
                     max_r += d_ϕ[ldx]
                 end
 
                 for ldx in 1:nₚₐᵣₜₛ
-                    max_inv_r += (max_r - d_ϕ[ldx])
+                    max_cmp_r += max_r - d_ϕ[ldx]
                 end
 
                 kdx = 0
                 while true
                     kdx = 0
-                    r = max_r * rand()
+                    r = max_cmp_r * rand()
                     while r≥0 && kdx < nₚₐᵣₜₛ
                         kdx+=1
-                        r -= (max_inv_r - d_ϕ[kdx])
+                        r -= (max_r - d_ϕ[kdx])
                     end
                     if kdx==0 kdx=1 end
 
@@ -171,53 +178,73 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
             ############################################################################################################################
             if crossover == true
                 #Crossover
-                if rand() < 0.5
-                    for ldx in 1:size(W₁,2)
-                        for mdx in size(W₁,3)
-                            @inbounds W₁[kdx,ldx,mdx] = (1.0 - μ) * W₁[idx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
-                        end
-                    end
-                else
-                    for ldx in 1:size(W₁,2)
-                        for mdx in size(W₁,3)
-                            W₁[kdx,ldx,mdx] = (1.0 - μ) * W₁[jdx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
-                        end
+                for ldx in 1:size(W₁,2)
+                    for mdx in size(W₁,3)
+                        @inbounds W₁[kdx,ldx,mdx] = 0.5 * (1.0 - μ) * (W₁[idx,ldx,mdx] + W₁[jdx,ldx,mdx]) + 2.0 * μ * (rand() - 0.5)
                     end
                 end
 
-                if rand() < 0.5
-                    for ldx in 1:size(W₂,2)
-                        for mdx in size(W₂,3)
-                            @inbounds W₂[kdx,ldx,mdx] = (1.0 - μ) * W₂[idx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
-                        end
-                    end
-                else
-                    for ldx in 1:size(W₂,2)
-                        for mdx in size(W₂,3)
-                            W₂[kdx,ldx,mdx] = (1.0 - μ) * W₂[jdx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
-                        end
+                for ldx in 1:size(W₂,2)
+                    for mdx in size(W₂,3)
+                        @inbounds W₂[kdx,ldx,mdx] = 0.5 * (1.0 - μ) * (W₂[idx,ldx,mdx] + W₂[jdx,ldx,mdx]) + 2.0 * μ * (rand() - 0.5)
                     end
                 end
 
-                if rand() < 0.5
-                    for ldx in 1:size(b₁,2)
-                        @inbounds b₁[kdx,ldx] = (1.0 - μ) * b₁[idx,ldx] + 2.0 * μ * (rand() - 0.5)
-                    end
-                else
-                    for ldx in 1:size(b₁,2)
-                        b₁[kdx,ldx] = (1.0 - μ) * b₁[jdx,ldx] + 2.0 * μ * (rand() - 0.5)
-                    end
+                for ldx in 1:size(b₁,2)
+                    @inbounds b₁[kdx,ldx] = 0.5 * (1.0 - μ) * (b₁[idx,ldx] + b₁[jdx,ldx]) + 2.0 * μ * (rand() - 0.5)
                 end
 
-                if rand() < 0.5
-                    for ldx in 1:size(b₂,2)
-                        @inbounds b₂[kdx,ldx] = (1.0 - μ) * b₂[idx,ldx] + 2.0 * μ * (rand() - 0.5)
-                    end
-                else
-                    for ldx in 1:size(b₂,2)
-                        b₂[kdx,ldx] = (1.0 - μ) * b₂[jdx,ldx] + 2.0 * μ * (rand() - 0.5)
-                    end
+                for ldx in 1:size(b₂,2)
+                    @inbounds b₂[kdx,ldx] = 0.5 * (1.0 - μ) * (b₂[idx,ldx] + b₂[jdx,ldx]) + 2.0 * μ * (rand() - 0.5)
                 end
+
+                #                 if rand() < 0.5
+#                     for ldx in 1:size(W₁,2)
+#                         for mdx in size(W₁,3)
+#                             @inbounds W₁[kdx,ldx,mdx] = (1.0 - μ) * W₁[idx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
+#                         end
+#                     end
+#                 else
+#                     for ldx in 1:size(W₁,2)
+#                         for mdx in size(W₁,3)
+#                             W₁[kdx,ldx,mdx] = (1.0 - μ) * W₁[jdx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
+#                         end
+#                     end
+#                 end
+#
+#                 if rand() < 0.5
+#                     for ldx in 1:size(W₂,2)
+#                         for mdx in size(W₂,3)
+#                             @inbounds W₂[kdx,ldx,mdx] = (1.0 - μ) * W₂[idx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
+#                         end
+#                     end
+#                 else
+#                     for ldx in 1:size(W₂,2)
+#                         for mdx in size(W₂,3)
+#                             W₂[kdx,ldx,mdx] = (1.0 - μ) * W₂[jdx,ldx,mdx] + 2.0 * μ * (rand() - 0.5)
+#                         end
+#                     end
+#                 end
+#
+#                 if rand() < 0.5
+#                     for ldx in 1:size(b₁,2)
+#                         @inbounds b₁[kdx,ldx] = (1.0 - μ) * b₁[idx,ldx] + 2.0 * μ * (rand() - 0.5)
+#                     end
+#                 else
+#                     for ldx in 1:size(b₁,2)
+#                         b₁[kdx,ldx] = (1.0 - μ) * b₁[jdx,ldx] + 2.0 * μ * (rand() - 0.5)
+#                     end
+#                 end
+#
+#                 if rand() < 0.5
+#                     for ldx in 1:size(b₂,2)
+#                         @inbounds b₂[kdx,ldx] = (1.0 - μ) * b₂[idx,ldx] + 2.0 * μ * (rand() - 0.5)
+#                     end
+#                 else
+#                     for ldx in 1:size(b₂,2)
+#                         b₂[kdx,ldx] = (1.0 - μ) * b₂[jdx,ldx] + 2.0 * μ * (rand() - 0.5)
+#                     end
+#                 end
             else
                 ############################################################################################################################
                 #Select Best
@@ -261,6 +288,7 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
 
             d_τ[kdx] = 1
             d_cn[kdx] = 0
+            d_sx[kdx] = rand(Bool)
             @inbounds d_cn[idx] += 1
             d_cn[jdx] += 1
         end
@@ -270,7 +298,7 @@ function update_kernel!(d_params, d_τ, d_ϕ, d_cn, d_sx, d_rr, d_pos, d_θ, d_s
 #     @inbounds d_ϕ[idx] = γ*(d_cn[idx] / d_τ[idx])
     #I have to add the penalty for when a particle gets close to another
 
-    @inbounds d_ϕ[idx] = γ * exp(sum_dist / (2*nₚₐᵣₜₛ))
+    @inbounds d_ϕ[idx] = γ * exp(-sum_dist / (2*nₚₐᵣₜₛ))
 
     return
 end
@@ -303,26 +331,64 @@ function order_parameter(nₚₐᵣₜₛ, d_pos, d_θ, d_speed)
     return ψ, avg_dist
 end
 
-function calculate_vorticity(nₚₐᵣₜₛ, pos, θₛ)
+function calculate_vorticity(parameters_dict::Dict,nₚₐᵣₜₛ, pos, θₛ)
+    nₘₑₐₛᵤᵣₑₛ = 500
     vorticity = zeros(nₚₐᵣₜₛ)
+    box_size = parameters_dict["box_size"]
+    inₚₐᵣₜₛ = 1
+    R₁ = 0.13
+    R₂ = 0.16
+    circ = 0
 
-    for idx in 1:nₚₐᵣₜₛ
-        x, y, θ = pos[1, idx], pos[2, idx], θₛ[idx]
-        Δx = 1e-2
-        Δy = 1e-2
 
-        vx = cos(θ)
-        vy = sin(θ)
+    for idx in 1:nₘₑₐₛᵤᵣₑₛ
+        x_circ = R₂ + (box_size - R₂)*rand()
+        y_circ = R₂ + (box_size - R₂)*rand()
+        for jdx in 1:nₚₐᵣₜₛ
+            x, y, θ = pos[1, jdx], pos[2, jdx], θₛ[jdx]
+            Δx = x_circ - x
+            Δy = y_circ - y
+            inₚₐᵣₜₛ = 1
 
-        # Approximate partial derivatives using central difference
-        dvx_dy = (cos(θ + Δy) - cos(θ - Δy)) / (2Δy)
-        dvy_dx = (sin(θ + Δx) - sin(θ - Δx)) / (2Δx)
+            if R₁ ≤ abs(Δx^2 + Δy^2) ≤ R₂
+                inₚₐᵣₜₛ+=1
+                α = atan(Δy,Δx)
 
-        # Calculate vorticity
-        vorticity[idx] = dvx_dy - dvy_dx
+                if 0 ≤ α < π/2
+                    θ′ = π/2 - α
+                elseif π/2 ≤ α < π
+                    θ′ = π/2 + α
+                elseif π ≤ α < 3*π/2
+                    θ′ = 3*π/2 + α
+                else
+                    θ′ = -(π/2 + α)
+                end
+
+                Π = cos(θ′-θ)
+                circ += Π
+            end
+        end
     end
 
-    return vorticity
+    circ = circ/(inₚₐᵣₜₛ * nₘₑₐₛᵤᵣₑₛ) + 1
+
+#     for idx in 1:nₚₐᵣₜₛ
+#         x, y, θ = pos[1, idx], pos[2, idx], θₛ[idx]
+#         Δx = 1e-2
+#         Δy = 1e-2
+#
+#         vx = cos(θ)
+#         vy = sin(θ)
+#
+#         # Approximate partial derivatives using central difference
+#         dvx_dy = (cos(θ + Δy) - cos(θ - Δy)) / (2Δy)
+#         dvy_dx = (sin(θ + Δx) - sin(θ - Δx)) / (2Δx)
+#
+#         # Calculate vorticity
+#         vorticity[idx] = dvx_dy - dvy_dx
+#     end
+
+    return circ
 end
 
 # WRONG

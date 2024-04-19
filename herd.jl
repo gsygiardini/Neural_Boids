@@ -2,14 +2,14 @@ include("./dbscan.jl")
 include("./herd_functions.jl")
 
 parameters_dict = Dict(
-    "total_steps" => 1e5,          #Number of steps in the simulation
+    "total_steps" => 1e7,          #Number of steps in the simulation
     "anim_steps" => 5e2,          #Number of steps in the animation
-    "nₚₐᵣₜₛ" => 100,               #Maximum number of particles in the simulation
+    "nₚₐᵣₜₛ" => 70,               #Maximum number of particles in the simulation
     "avg_repr" => false,           #Crossover reproduction (true) vs Select best "genes"
     "roulette" => false,           #Kill boids with weighted probabilities -> BUG FIX ROULETTE
     "weighted_repr" => false,      #Reproduction has a chance to happen depending of fitness difference
     "reflect_walls" => false,      #Confine boids in a closed space(true) vs Periodic boundary condition (false)
-    "vision" => true,             #Boids can only perceive other boids at a certain direction
+    "vision" => false,             #Boids can only perceive other boids at a certain direction
     "crossover" => true,
     "potential" => false,          #Boids are penalized for touching each other
     "innertia" => false,           #Boids have rotational innertia(true)
@@ -18,8 +18,8 @@ parameters_dict = Dict(
     "ε" => 0.5,                    #DB scan parameter
     "min_pts" => 3,                #DB minimum number of points per cluster
     "μ" => 1e-6,                   #Rate of mutation
-    "β" => 5e3,                    #Boids vision distance center_of_mass .+= ((exp(- "β" *dist^2.0)/length(Boids)) * fov ) .* boid₂.pos
-    "γ" => 1.0,                    #Fitness multiplier
+    "β" => 25,                    #Boids vision distance center_of_mass .+= ((exp(- "β" *dist^2.0)/length(Boids)) * fov ) .* boid₂.pos
+    "γ" => 10.0,                    #Fitness multiplier
     "κ" => 50.0,                   #S curve to avoid boids touching coefficient 1/(1 - exp(-κ(x-x0)))
     "x₀" => 0.07,                  #S curve to avoid boids touching center value 1/(1 - exp(-κ(x-x0)))
     "r" => 0.1,                    #Boid Interaction Radius
@@ -107,7 +107,7 @@ function update_boids!(parameters_dict::Dict)
     measure_every = 1e3
     t = [1:total_steps/measure_every]
     ψ = []
-    ω = []#randn(Float32, nₚₐᵣₜₛ) |> cu
+    ω = []
     Δ = []
 
     for τ in 1:total_steps
@@ -119,9 +119,10 @@ function update_boids!(parameters_dict::Dict)
 
         if τ % measure_every == 0
             ψᵢ,Δᵢ = order_parameter(nₚₐᵣₜₛ, d_pos|>cpu, d_θ|>cpu, d_speed|>cpu)
+            ωᵢ = calculate_vorticity(parameters_dict,nₚₐᵣₜₛ, d_pos|>cpu, d_θ|>cpu)
             push!(ψ,ψᵢ)
             push!(Δ,Δᵢ)
-#             push!(ω,calculate_vorticity(nₚₐᵣₜₛ, d_pos|>cpu, d_θ|>cpu))
+            push!(ω,ωᵢ)
 #             println((W₁ |> cpu)[1,:,:])
         end
     end
@@ -175,9 +176,9 @@ function update_boids!(parameters_dict::Dict)
     plot(t, Δ, xlims=(1,Inf), label="Average Distance Over Time")
     savefig("$folder_path/avg_dist.png")
 
-#     println(ω)
-#     plot(t, ω[:,1], label="Vorticity Over Time")
-#     savefig("$folder_path/vorticity.png")
+    println(ω)
+    plot(t, ω, label="Circulation Over Time")
+    savefig("$folder_path/circulation.png")
 end
 
 update_boids!(parameters_dict)
