@@ -1,0 +1,3 @@
+Changed selection method to stochastic selection instead of the roulette selection wheel.
+
+Now I'm using a fitness where smaller is better. So I'm minimizing the fitness, I guess it became a cost function.
